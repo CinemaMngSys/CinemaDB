@@ -2,102 +2,28 @@ import tkinter as tk
 from tkinter import messagebox, filedialog
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
-import mysql.connector
-import warnings
 from datetime import datetime, timedelta
 from PIL import Image, ImageTk
 import os
+from db import get_db_connection  # Veritabanı fonksiyonunu çağırıyoruz
 
-# Gereksiz uyarıları gizle
-warnings.filterwarnings("ignore", category=DeprecationWarning)
-
-# --- VERİTABANI AYARLARI ---
-DB_CONFIG = {
-    'host': 'localhost',
-    'user': 'root',
-    'password': '123456',  # Şifreniz
-    'database': 'CinemaDB'
-}
-
-def get_db_connection():
-    try:
-        conn = mysql.connector.connect(**DB_CONFIG)
-        return conn
-    except mysql.connector.Error as err:
-        print(f"Veritabanı Hatası: {err}") 
-        return None
-
-# --- BÖLÜM 1: GİRİŞ EKRANI ---
-class LoginApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Sinema Yönetim Sistemi")
-        self.root.geometry("450x350")
-        self.center_window(450, 350)
-        
-        self.main_frame = ttk.Frame(root, padding=30)
-        self.main_frame.pack(fill=BOTH, expand=True)
-
-        ttk.Label(self.main_frame, text="SİSTEM GİRİŞİ", font=("Helvetica", 18, "bold"), bootstyle="primary").pack(pady=20)
-        
-        ttk.Label(self.main_frame, text="Kullanıcı Adı:").pack(fill=X)
-        self.entry_user = ttk.Entry(self.main_frame)
-        self.entry_user.pack(fill=X, pady=5)
-        # self.entry_user.insert(0, "admin") 
-        
-        ttk.Label(self.main_frame, text="Şifre:").pack(fill=X, pady=(10,0))
-        self.entry_pass = ttk.Entry(self.main_frame, show="*")
-        self.entry_pass.pack(fill=X, pady=5)
-        # self.entry_pass.insert(0, "1234")
-        
-        ttk.Button(self.main_frame, text="GİRİŞ YAP", command=self.login, bootstyle="success-outline", width=100).pack(pady=30)
-
-    def center_window(self, width, height):
-        screen_width = self.root.winfo_screenwidth()
-        screen_height = self.root.winfo_screenheight()
-        x = (screen_width/2) - (width/2)
-        y = (screen_height/2) - (height/2)
-        self.root.geometry('%dx%d+%d+%d' % (width, height, x, y))
-
-    def login(self):
-        username = self.entry_user.get()
-        password = self.entry_pass.get()
-        conn = get_db_connection()
-        if conn:
-            try:
-                cursor = conn.cursor()
-                cursor.execute("SELECT * FROM Users WHERE Username = %s AND Password = %s", (username, password))
-                user = cursor.fetchone()
-                if user:
-                    for widget in self.root.winfo_children(): widget.destroy()
-                    CinemaMainApp(self.root, user_id=user[0], user_role=user[3])
-                else:
-                    messagebox.showerror("Hata", "Hatalı Giriş Bilgileri")
-            finally:
-                conn.close()
-        else:
-            messagebox.showerror("Hata", "Veritabanına bağlanılamadı!")
-
-# --- BÖLÜM 2: ANA EKRAN ---
 class CinemaMainApp:
     def __init__(self, root, user_id, user_role):
         self.root = root
         self.user_id = user_id
         self.user_role = user_role
         
-        # Rolü küçük harfe çevirip kontrol edelim (Hata payını azaltır)
         self.is_admin = str(self.user_role).strip().lower() == 'admin'
         
         title_role = "YÖNETİCİ (ADMIN)" if self.is_admin else "GİŞE PERSONELİ"
         self.root.title(f"Sinema Paneli | {title_role}")
-        
         self.root.geometry("1280x800")
         self.center_window(1280, 800)
 
         self.notebook = ttk.Notebook(root, bootstyle="primary")
         self.notebook.pack(fill=BOTH, expand=True, padx=10, pady=10)
 
-        # --- ORTAK SEKMELER ---
+        # Sekmeleri Oluştur
         self.tab_search = ttk.Frame(self.notebook, padding=10)
         self.notebook.add(self.tab_search, text="🎬 Gişe & Bilet")
         self.setup_search_tab()
@@ -106,7 +32,6 @@ class CinemaMainApp:
         self.notebook.add(self.tab_tickets, text="🎫 Satış Geçmişi")
         self.setup_tickets_tab()
 
-        # --- ADMIN SEKMELERİ ---
         if self.is_admin:
             self.tab_movies = ttk.Frame(self.notebook, padding=10)
             self.notebook.add(self.tab_movies, text="⚙️ Film & Seans Yönetimi")
@@ -158,12 +83,11 @@ class CinemaMainApp:
         self.tree.heading("Kapasite", text="Doluluk")
         self.tree.column("FilmAdi", width=200)
         self.tree.column("Kapasite", width=80, anchor=CENTER)
-        
         self.tree.pack(fill=BOTH, expand=True)
         self.tree.bind("<<TreeviewSelect>>", self.show_poster_on_select)
         self.search_sessions()
 
-    # --- SEKME 2: GEÇMİŞ (DÜZELTİLDİ: ADMIN HEPSİNİ GÖRÜR) ---
+    # --- SEKME 2: GEÇMİŞ ---
     def setup_tickets_tab(self):
         frame_top = ttk.Frame(self.tab_tickets)
         frame_top.pack(fill=X, pady=10)
@@ -174,7 +98,6 @@ class CinemaMainApp:
         columns = ("TicketID", "Film", "Salon", "Tarih", "Saat", "Koltuk", "Fiyat")
         self.tree_tickets = ttk.Treeview(self.tab_tickets, columns=columns, show="headings", bootstyle="success",
                                          displaycolumns=("Film", "Salon", "Tarih", "Saat", "Koltuk", "Fiyat"))
-
         self.tree_tickets.heading("Film", text="Film")
         self.tree_tickets.heading("Salon", text="Salon")
         self.tree_tickets.heading("Tarih", text="Tarih")
@@ -249,7 +172,7 @@ class CinemaMainApp:
         self.load_movies()
         self.load_combobox_data()
 
-    # --- SEKME 4: HASILAT RAPORLARI ---
+    # --- SEKME 4: RAPORLAR ---
     def setup_reports_tab(self):
         frame_cards = ttk.Frame(self.tab_reports, padding=20)
         frame_cards.pack(fill=X)
@@ -279,14 +202,12 @@ class CinemaMainApp:
         self.tree_reports.pack(fill=BOTH, expand=True)
         self.load_reports()
 
-    # --- LOGIC ---
+    # --- YARDIMCI METOTLAR ---
     def on_tab_change(self, event):
         selected_tab = event.widget.select()
         try:
             tab_text = event.widget.tab(selected_tab, "text")
-            
-            if "Satış" in tab_text: 
-                self.load_my_tickets()
+            if "Satış" in tab_text: self.load_my_tickets()
             elif "Yönetim" in tab_text and self.is_admin: 
                 self.load_movies()
                 self.load_combobox_data()
@@ -319,8 +240,7 @@ class CinemaMainApp:
                     self.lbl_poster.image = photo
                 else:
                     self.lbl_poster.config(image='', text="[ Afiş Yok ]")
-            except Exception as e:
-                print(e)
+            except Exception as e: print(e)
             finally: conn.close()
 
     def add_session(self):
@@ -369,8 +289,7 @@ class CinemaMainApp:
                 conn.commit()
                 messagebox.showinfo("Başarılı", "Seans eklendi.")
                 self.search_sessions()
-            except Exception as e:
-                messagebox.showerror("Hata", str(e))
+            except Exception as e: messagebox.showerror("Hata", str(e))
             finally: conn.close()
 
     def load_combobox_data(self):
@@ -400,25 +319,19 @@ class CinemaMainApp:
         if conn:
             try:
                 cursor = conn.cursor()
-                
-                # --- YENİ MANTIK ---
-                # Admin (Yönetici) ise, filtre olmadan HEPSİNİ getir.
-                # Gişe (User) ise, sadece kendi ID'sini filtrele.
-                
                 if self.is_admin:
                     query = """SELECT T.TicketID, M.Title, H.HallName, S.SessionDate, S.SessionTime, T.SeatNumber, T.Price
                                FROM Tickets T JOIN Sessions S ON T.SessionID = S.SessionID
                                JOIN Movies M ON S.MovieID = M.MovieID JOIN Halls H ON S.HallID = H.HallID
                                ORDER BY T.PurchaseDate DESC"""
-                    cursor.execute(query) # Admin için parametresiz sorgu
+                    cursor.execute(query)
                 else:
                     query = """SELECT T.TicketID, M.Title, H.HallName, S.SessionDate, S.SessionTime, T.SeatNumber, T.Price
                                FROM Tickets T JOIN Sessions S ON T.SessionID = S.SessionID
                                JOIN Movies M ON S.MovieID = M.MovieID JOIN Halls H ON S.HallID = H.HallID
                                WHERE T.UserID = %s 
                                ORDER BY T.PurchaseDate DESC"""
-                    cursor.execute(query, (self.user_id,)) # User için parametreli sorgu
-
+                    cursor.execute(query, (self.user_id,))
                 for row in cursor.fetchall(): self.tree_tickets.insert("", "end", values=row)
             finally: conn.close()
 
@@ -495,7 +408,6 @@ class CinemaMainApp:
         film_adi = values[1]
         kapasite_text = str(values[5])
         kapasite = int(kapasite_text.split('/')[1].strip()) if '/' in kapasite_text else int(kapasite_text)
-
         sold_seats = []
         conn = get_db_connection()
         if conn:
@@ -509,7 +421,6 @@ class CinemaMainApp:
         seat_win.title(f"Koltuk Seçimi: {film_adi}")
         seat_win.geometry("600x600")
         seat_win.grab_set()
-
         ttk.Label(seat_win, text="[ SAHNE ]", font=("Arial", 14, "bold"), bootstyle="inverse-dark").pack(fill=X, pady=10)
         
         frame_type = ttk.Frame(seat_win, padding=10)
@@ -521,7 +432,6 @@ class CinemaMainApp:
 
         frame_seats = ttk.Frame(seat_win, padding=20)
         frame_seats.pack()
-
         cols = 10 
         for i in range(1, kapasite + 1):
             r, c_idx = (i - 1) // cols, (i - 1) % cols
@@ -535,7 +445,6 @@ class CinemaMainApp:
     def confirm_booking(self, win, s_id, seat):
         ticket_type = self.combo_ticket_type.get()
         fiyat = 100.00 if "Öğrenci" in ticket_type else 150.00
-
         if messagebox.askyesno("Onay", f"{seat} numaralı koltuğu {fiyat} TL'ye sat?"):
             conn = get_db_connection()
             if conn:
@@ -551,8 +460,7 @@ class CinemaMainApp:
                     messagebox.showinfo("Başarılı", "Bilet Satıldı!")
                     win.destroy()
                     self.search_sessions()
-                except mysql.connector.Error as e:
-                    messagebox.showerror("Hata", str(e))
+                except Exception as e: messagebox.showerror("Hata", str(e))
                 finally: conn.close()
 
     def load_reports(self):
@@ -563,7 +471,6 @@ class CinemaMainApp:
                 c.execute("SELECT SUM(Price) FROM Tickets")
                 total_rev = c.fetchone()[0]
                 self.lbl_total_revenue.config(text=f"{total_rev if total_rev else 0:,.2f} TL")
-
                 c.execute("SELECT COUNT(*) FROM Tickets")
                 total_tix = c.fetchone()[0]
                 self.lbl_total_tickets.config(text=f"{total_tix} Adet")
@@ -577,8 +484,3 @@ class CinemaMainApp:
                     rev = r[2] if r[2] else 0
                     self.tree_reports.insert("", "end", values=(r[0], r[1], f"{rev:,.2f} TL"))
             finally: conn.close()
-
-if __name__ == "__main__":
-    app_root = ttk.Window(themename="darkly") 
-    LoginApp(app_root)
-    app_root.mainloop()
