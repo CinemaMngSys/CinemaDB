@@ -15,7 +15,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',
-    'password': 'Batu.2003',  # Şifreniz
+    'password': '123456',  # Şifreniz
     'database': 'CinemaDB'
 }
 
