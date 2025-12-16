@@ -5,7 +5,7 @@ from ttkbootstrap.constants import *
 from datetime import datetime, timedelta
 from PIL import Image, ImageTk
 import os
-from db import get_db_connection  # Veritabanı fonksiyonunu çağırıyoruz
+from db import get_db_connection
 
 class CinemaMainApp:
     def __init__(self, root, user_id, user_role):
@@ -20,6 +20,14 @@ class CinemaMainApp:
         self.root.geometry("1280x800")
         self.center_window(1280, 800)
 
+        # HATA GİDERME İÇİN KRİTİK: Tüm ana Treeview objelerini başlat
+        self.tree = None
+        self.tree_tickets = None
+        self.tree_movies = None
+        self.tree_sessions = None
+        self.combo_ticket_type = None
+        self.selected_poster_path = tk.StringVar()
+        
         self.notebook = ttk.Notebook(root, bootstyle="primary")
         self.notebook.pack(fill=BOTH, expand=True, padx=10, pady=10)
 
@@ -85,7 +93,7 @@ class CinemaMainApp:
         self.tree.column("Kapasite", width=80, anchor=CENTER)
         self.tree.pack(fill=BOTH, expand=True)
         self.tree.bind("<<TreeviewSelect>>", self.show_poster_on_select)
-        self.search_sessions()
+        self.search_sessions() # self.tree tanımlandıktan sonra çağrıldığı için sorun çözülmeli
 
     # --- SEKME 2: GEÇMİŞ ---
     def setup_tickets_tab(self):
@@ -106,7 +114,7 @@ class CinemaMainApp:
         self.tree_tickets.heading("Fiyat", text="Tutar")
         self.tree_tickets.pack(fill=BOTH, expand=True)
 
-    # --- SEKME 3: FİLM YÖNETİMİ ---
+    # --- SEKME 3: FİLM & SEANS YÖNETİMİ (GÜNCELLENDİ) ---
     def setup_movies_tab(self):
         frame_left = ttk.Frame(self.tab_movies, padding=10, width=350)
         frame_left.pack(side=LEFT, fill=Y, padx=(0, 10))
@@ -154,23 +162,45 @@ class CinemaMainApp:
         self.entry_s_time.insert(0, "20:00:00")
         ttk.Button(frame_add_session, text="📅 Seansı Oluştur", command=self.add_session, bootstyle="warning").pack(fill=X, pady=10)
 
-        # Liste
-        frame_list = ttk.Frame(self.tab_movies)
-        frame_list.pack(side=RIGHT, fill=BOTH, expand=True)
-        ttk.Label(frame_list, text="FİLM ARŞİVİ", font=("Helvetica", 12, "bold")).pack(pady=10)
+        # Sağ Panel - Listeler
+        frame_right = ttk.Frame(self.tab_movies)
+        frame_right.pack(side=RIGHT, fill=BOTH, expand=True)
+        
+        # 3a. Film Listesi (Top Right)
+        frame_list_movies = ttk.Labelframe(frame_right, text="FİLM ARŞİVİ", padding=10, bootstyle="primary")
+        frame_list_movies.pack(fill=X, pady=(0, 10))
         
         columns = ("ID", "Title", "Genre", "Duration", "Director")
-        self.tree_movies = ttk.Treeview(frame_list, columns=columns, show="headings", bootstyle="primary",
+        self.tree_movies = ttk.Treeview(frame_list_movies, columns=columns, show="headings", bootstyle="primary",
                                         displaycolumns=("Title", "Genre", "Duration", "Director"))
         self.tree_movies.heading("Title", text="Film Adı")
         self.tree_movies.heading("Genre", text="Tür")
         self.tree_movies.heading("Duration", text="Süre")
         self.tree_movies.heading("Director", text="Yönetmen")
-        self.tree_movies.pack(fill=BOTH, expand=True)
-        ttk.Button(frame_list, text="🗑️ SEÇİLİ FİLMİ SİL", command=self.delete_movie, bootstyle="danger").pack(pady=10, anchor=E)
+        self.tree_movies.pack(fill=X, expand=True, ipady=50)
+        ttk.Button(frame_list_movies, text="🗑️ SEÇİLİ FİLMİ SİL", command=self.delete_movie, bootstyle="danger").pack(pady=5, anchor=E)
+
+        # 3b. Seans Listesi (Bottom Right - YENİ)
+        frame_list_sessions = ttk.Labelframe(frame_right, text="AKTİF SEANSLAR", padding=10, bootstyle="info")
+        frame_list_sessions.pack(fill=BOTH, expand=True) 
+        
+        session_cols = ("ID", "FilmAdi", "SalonAdi", "Tarih", "Saat")
+        self.tree_sessions = ttk.Treeview(frame_list_sessions, columns=session_cols, show="headings", bootstyle="info",
+                                          displaycolumns=("FilmAdi", "SalonAdi", "Tarih", "Saat"))
+        self.tree_sessions.heading("FilmAdi", text="Film Adı")
+        self.tree_sessions.heading("SalonAdi", text="Salon")
+        self.tree_sessions.heading("Tarih", text="Tarih")
+        self.tree_sessions.heading("Saat", text="Saat")
+        self.tree_sessions.pack(fill=BOTH, expand=True)
+        
+        frame_session_btns = ttk.Frame(frame_list_sessions)
+        frame_session_btns.pack(fill=X, pady=5)
+        ttk.Button(frame_session_btns, text="🔄 Seansları Yenile", command=self.load_all_sessions, bootstyle="secondary").pack(side=LEFT, padx=5)
+        ttk.Button(frame_session_btns, text="❌ SEÇİLİ SEANSI SİL", command=self.delete_session, bootstyle="danger").pack(side=RIGHT, padx=5)
 
         self.load_movies()
         self.load_combobox_data()
+        self.load_all_sessions()
 
     # --- SEKME 4: RAPORLAR ---
     def setup_reports_tab(self):
@@ -211,6 +241,7 @@ class CinemaMainApp:
             elif "Yönetim" in tab_text and self.is_admin: 
                 self.load_movies()
                 self.load_combobox_data()
+                self.load_all_sessions()
             elif "Rapor" in tab_text and self.is_admin:
                 self.load_reports()
         except: pass
@@ -289,6 +320,8 @@ class CinemaMainApp:
                 conn.commit()
                 messagebox.showinfo("Başarılı", "Seans eklendi.")
                 self.search_sessions()
+                if self.is_admin:
+                    self.load_all_sessions()
             except Exception as e: messagebox.showerror("Hata", str(e))
             finally: conn.close()
 
@@ -303,6 +336,9 @@ class CinemaMainApp:
 
     def search_sessions(self):
         movie_name = self.entry_search.get()
+        # HATA GİDERME İÇİN KRİTİK: self.tree'nin varlığını kontrol et
+        if self.tree is None: return
+        
         for row in self.tree.get_children(): self.tree.delete(row)
         conn = get_db_connection()
         if conn:
@@ -384,17 +420,71 @@ class CinemaMainApp:
         selected = self.tree_movies.selection()
         if not selected: return
         movie_id = self.tree_movies.item(selected)['values'][0]
-        if messagebox.askyesno("DİKKAT", "Bu filmi ve verilerini silmek istiyor musunuz?"):
+        if messagebox.askyesno("DİKKAT", "Bu filmi ve verilerini silmek istiyor musunuz?\n(Not: Filmin tüm seansları ve biletleri silinecektir.)"):
             conn = get_db_connection()
             if conn:
                 try:
                     c = conn.cursor()
-                    c.execute("DELETE FROM Tickets WHERE SessionID IN (SELECT SessionID FROM Sessions WHERE MovieID=%s)", (movie_id,))
-                    c.execute("DELETE FROM Sessions WHERE MovieID=%s", (movie_id,))
+                    # ON DELETE CASCADE olduğu için, sadece Movies silmek yeterlidir
                     c.execute("DELETE FROM Movies WHERE MovieID=%s", (movie_id,))
                     conn.commit()
-                    messagebox.showinfo("Silindi", "Film silindi.")
+                    messagebox.showinfo("Silindi", "Film, seansları ve biletleri silindi.")
                     self.load_movies()
+                    if self.is_admin:
+                         self.load_all_sessions()
+                    self.search_sessions()
+                except Exception as e: messagebox.showerror("Hata", str(e))
+                finally: conn.close()
+    
+    # YENİ METOT: TÜM SEANSLARI LİSTELEME
+    def load_all_sessions(self):
+        """Tüm seansları Film & Seans Yönetimi sekmesindeki tabloya yükler."""
+        # tree_sessions'ın tanımlanıp tanımlanmadığını kontrol et
+        if not self.is_admin or self.tree_sessions is None: return
+        
+        for row in self.tree_sessions.get_children(): self.tree_sessions.delete(row)
+        conn = get_db_connection()
+        if conn:
+            try:
+                cursor = conn.cursor()
+                query = """SELECT S.SessionID, M.Title, H.HallName, S.SessionDate, S.SessionTime
+                           FROM Sessions S
+                           JOIN Movies M ON S.MovieID = M.MovieID
+                           JOIN Halls H ON S.HallID = H.HallID
+                           ORDER BY S.SessionDate, S.SessionTime"""
+                cursor.execute(query)
+                for r in cursor.fetchall():
+                    self.tree_sessions.insert("", "end", values=r)
+            except Exception as e: 
+                print(f"Seans yükleme hatası: {e}")
+            finally: conn.close()
+    
+    # YENİ METOT: SEANS SİLME
+    def delete_session(self):
+        """Seçili seansı siler ve ilgili biletleri ON DELETE CASCADE sayesinde siler."""
+        selected = self.tree_sessions.selection()
+        if not selected: 
+            messagebox.showwarning("Seçim Yok", "Silmek için bir seans seçin.")
+            return
+
+        session_id = self.tree_sessions.item(selected)['values'][0]
+        session_info = self.tree_sessions.item(selected)['values'][1:5]
+        
+        if messagebox.askyesno("DİKKAT! Seans Silme", f"'{session_info[0]}' filminin {session_info[2]} {session_info[3]} tarihli seansını silmek istediğinizden emin misiniz?\n(Not: Bu seansa ait tüm biletler silinecektir.)"):
+            conn = get_db_connection()
+            if conn:
+                try:
+                    c = conn.cursor()
+                    # Tickets tablosunda ON DELETE CASCADE olduğu için, 
+                    # sadece Sessions tablosundan silmek yeterlidir.
+                    c.execute("DELETE FROM Sessions WHERE SessionID=%s", (session_id,))
+                    conn.commit()
+                    messagebox.showinfo("Silindi", "Seans ve ilgili biletler başarıyla silindi.")
+                    
+                    self.load_all_sessions() # Listeyi yenile
+                    self.search_sessions() # Gişe listesini yenile
+                except Exception as e:
+                    messagebox.showerror("Hata", str(e))
                 finally: conn.close()
 
     def open_seat_window(self):
@@ -468,19 +558,62 @@ class CinemaMainApp:
         if conn:
             try:
                 c = conn.cursor()
+                
+                # --- 1. TOPLAM HASILAT HESAPLAMA ---
+                
                 c.execute("SELECT SUM(Price) FROM Tickets")
-                total_rev = c.fetchone()[0]
-                self.lbl_total_revenue.config(text=f"{total_rev if total_rev else 0:,.2f} TL")
+                # Hata Düzeltme: Sonucu al, None ise 0.0 yap, ve float'a çevir.
+                active_rev_result = c.fetchone()[0]
+                total_active_rev = float(active_rev_result) if active_rev_result is not None else 0.0
+                
+                c.execute("SELECT SUM(Price) FROM RevenueArchive")
+                # Hata Düzeltme: Aynı şekilde arşivden gelen veriyi de float'a çevir.
+                archived_rev_result = c.fetchone()[0]
+                total_archived_rev = float(archived_rev_result) if archived_rev_result is not None else 0.0
+                
+                # Artık ikisi de float olduğu için toplama sorunsuz çalışır.
+                total_rev = total_active_rev + total_archived_rev
+                self.lbl_total_revenue.config(text=f"{total_rev:,.2f} TL")
+
+                # Hem aktif biletlerden hem de arşivden toplam bilet sayısını al
+                # COUNT INT döndürdüğü için burada tipler uyumludur.
                 c.execute("SELECT COUNT(*) FROM Tickets")
-                total_tix = c.fetchone()[0]
+                total_active_tix = c.fetchone()[0] or 0
+                
+                c.execute("SELECT COUNT(*) FROM RevenueArchive")
+                total_archived_tix = c.fetchone()[0] or 0
+                
+                total_tix = total_active_tix + total_archived_tix
                 self.lbl_total_tickets.config(text=f"{total_tix} Adet")
 
+                # --- 2. FİLM BAZLI HASILAT HESAPLAMA (Union ile) ---
                 for row in self.tree_reports.get_children(): self.tree_reports.delete(row)
-                query = """SELECT M.Title, COUNT(T.TicketID), SUM(T.Price) FROM Tickets T
-                           JOIN Sessions S ON T.SessionID = S.SessionID JOIN Movies M ON S.MovieID = M.MovieID
-                           GROUP BY M.Title ORDER BY SUM(T.Price) DESC"""
-                c.execute(query)
+                
+                final_query = """
+                    SELECT
+                        Title,
+                        SUM(BiletSayisi) AS TotalBiletSayisi,
+                        SUM(Hasilat) AS TotalHasilat
+                    FROM (
+                        -- Aktif biletler
+                        SELECT M.Title, 1 AS BiletSayisi, T.Price AS Hasilat
+                        FROM Tickets T
+                        JOIN Sessions S ON T.SessionID = S.SessionID 
+                        JOIN Movies M ON S.MovieID = M.MovieID
+                        
+                        UNION ALL
+                        
+                        -- Arşivlenmiş biletler
+                        SELECT Title, 1 AS BiletSayisi, Price AS Hasilat
+                        FROM RevenueArchive
+                    ) AS CombinedSales
+                    GROUP BY Title
+                    ORDER BY TotalHasilat DESC;
+                """
+                c.execute(final_query)
+                
                 for r in c.fetchall():
-                    rev = r[2] if r[2] else 0
+                    # Döngü içindeki hasılat verisini de float'a çevirerek formatlama hatasını önle
+                    rev = float(r[2]) if r[2] else 0
                     self.tree_reports.insert("", "end", values=(r[0], r[1], f"{rev:,.2f} TL"))
             finally: conn.close()
