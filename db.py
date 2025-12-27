@@ -4,7 +4,7 @@ import mysql.connector
 DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',
-    'password': 'Batu.2003',  # Kendi şifrenle değiştirmeyi unutma
+    'password': 'root şifren',  
     'database': 'CinemaDB'
 }
 
