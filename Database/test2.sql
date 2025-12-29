@@ -15,26 +15,3 @@ INSERT INTO Users (Username,Password,Role) VALUES ('bthntrksy', 'batu1234', 'Adm
 INSERT INTO Sessions (MovieID, HallID, SessionDate, SessionTime) VALUES (1, 1, '2025-11-30', '20:00:00');
 INSERT INTO Sessions (MovieID, HallID, SessionDate, SessionTime) VALUES (2, 2, '2025-11-30', '15:00:00');
 
-DELIMITER //
-DROP PROCEDURE IF EXISTS sp_GetMovieSessions; 
-DELIMITER ;
-
-DELIMITER //
-CREATE PROCEDURE sp_GetMovieSessions(IN movieName VARCHAR(100))
-BEGIN
-    SELECT 
-        S.SessionID,
-        M.Title AS FilmAdi,
-        H.HallName AS SalonAdi,
-        S.SessionDate AS Tarih,
-        S.SessionTime AS Saat,
-        H.Capacity AS Kapasite
-    FROM Sessions S
-    JOIN Movies M ON S.MovieID = M.MovieID
-    JOIN Halls H ON S.HallID = H.HallID
-    WHERE M.Title LIKE CONCAT('%', movieName, '%')
-    ORDER BY S.SessionDate, S.SessionTime;
-END //
-DELIMITER ;
-
-CALL sp_GetMovieSessions('Inception');
