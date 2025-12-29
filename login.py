@@ -2,7 +2,7 @@ import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from tkinter import messagebox
 from db import get_db_connection
-from app import CinemaMainApp  # Ana uygulamayı çağırıyoruz
+from app import CinemaMainApp
 
 class LoginApp:
     def __init__(self, root):

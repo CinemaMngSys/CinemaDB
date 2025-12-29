@@ -1,13 +1,34 @@
 USE CinemaDB;
 
--- Eski prosedürleri temizle
 DROP PROCEDURE IF EXISTS sp_GetMovieRevenue;
 DROP PROCEDURE IF EXISTS sp_SellTicket;
 DROP PROCEDURE IF EXISTS sp_CleanupOldSessions;
+DROP PROCEDURE IF EXISTS sp_GetMovieSessions;
+
+DELIMITER //
+CREATE PROCEDURE sp_GetMovieSessions(IN search_text VARCHAR(100))
+BEGIN
+    SELECT 
+        S.SessionID,
+        M.Title AS FilmAdi,
+        H.HallName AS SalonAdi,
+        S.SessionDate AS Tarih,
+        S.SessionTime AS Saat,
+        CONCAT(
+            (SELECT COUNT(*) FROM Tickets T WHERE T.SessionID = S.SessionID), 
+            ' / ', 
+            H.Capacity
+        ) AS Kapasite
+    FROM Sessions S
+    JOIN Movies M ON S.MovieID = M.MovieID
+    JOIN Halls H ON S.HallID = H.HallID
+    WHERE M.Title LIKE CONCAT('%', search_text, '%')
+    ORDER BY S.SessionDate, S.SessionTime;
+END //
+DELIMITER ;
 
 DELIMITER //
 
--- 1. Film Bazlı Toplam Hasılat (Raporlama için)
 CREATE PROCEDURE sp_GetMovieRevenue(IN input_movie_name VARCHAR(100))
 BEGIN
     SELECT 
@@ -20,9 +41,7 @@ BEGIN
     WHERE m.Title LIKE CONCAT('%', input_movie_name, '%')
     GROUP BY m.Title;
 END //
-
--- 2. Güvenli Bilet Satışı (Python App ile Uyumlu Hale Getirildi)
--- İsim/Soyisim yerine p_userID (Gişe Personeli ID) alıyor.
+DELIMITER //
 CREATE PROCEDURE sp_SellTicket(
     IN p_session_id INT, 
     IN p_user_id INT, 
@@ -31,34 +50,28 @@ CREATE PROCEDURE sp_SellTicket(
 )
 BEGIN
     DECLARE v_count INT;
-
-    -- Koltuk dolu mu kontrol et
     SELECT COUNT(*) INTO v_count 
     FROM Tickets 
     WHERE SessionID = p_session_id AND SeatNumber = p_seat_number;
 
     IF v_count > 0 THEN
-        -- Hata fırlat (Python tarafı bunu yakalayabilir)
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Hata: Bu koltuk zaten satılmış!';
     ELSE
-        -- Bileti kes
         INSERT INTO Tickets (SessionID, UserID, SeatNumber, Price) 
         VALUES (p_session_id, p_user_id, p_seat_number, p_price);
     END IF;
 END //
 
--- 3. Geçmiş Seansları Temizleme ve Arşivleme
--- Bu prosedür hasılat verilerini kaybetmeden eski seansları temizler.
+DELIMITER //
 CREATE PROCEDURE sp_CleanupOldSessions()
 BEGIN
-    -- A. Silinecek seansları geçici tabloya al
     CREATE TEMPORARY TABLE IF NOT EXISTS SessionsToArchive AS
     SELECT SessionID, MovieID
     FROM Sessions
     WHERE SessionDate < CURDATE() 
-       OR (SessionDate = CURDATE() AND SessionTime < CURTIME());
+		OR (SessionDate = CURDATE() AND SessionTime < CURTIME());
 
-    -- B. Bu seansların biletlerini ARŞİV tablosuna taşı
+
     INSERT INTO RevenueArchive (OriginalTicketID, MovieID, Title, SessionID_Old, UserID, Price, PurchaseDate)
     SELECT 
         T.TicketID,
@@ -72,32 +85,29 @@ BEGIN
     JOIN SessionsToArchive STA ON T.SessionID = STA.SessionID
     JOIN Movies M ON STA.MovieID = M.MovieID;
 
-    -- C. Aktif tablolardan verileri temizle
-    -- (Önce biletler, sonra seanslar silinmeli)
     DELETE T FROM Tickets T
     JOIN SessionsToArchive STA ON T.SessionID = STA.SessionID;
     
     DELETE S FROM Sessions S
     JOIN SessionsToArchive STA ON S.SessionID = STA.SessionID;
     
-    -- D. Geçici tabloyu temizle
     DROP TEMPORARY TABLE IF EXISTS SessionsToArchive;
 END //
 
 DELIMITER ;
 
--- Event Scheduler Ayarı (Sunucuda zamanlanmış görevlerin çalışması için)
 SET GLOBAL event_scheduler = ON;
 
--- Günlük Temizlik Görevi (Her gün çalışır)
 DROP EVENT IF EXISTS daily_session_cleanup;
 DELIMITER //
 CREATE EVENT daily_session_cleanup
 ON SCHEDULE EVERY 1 DAY
-STARTS (TIMESTAMP(CURDATE() + INTERVAL 1 DAY, '03:00:00')) -- Her gece 03:00'te çalışır
+STARTS (TIMESTAMP(CURDATE() + INTERVAL 1 DAY, '03:00:00')) 
 ON COMPLETION PRESERVE ENABLE 
 DO
 BEGIN
     CALL sp_CleanupOldSessions();
 END //
-DELIMITER ;
+
+
+

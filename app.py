@@ -20,7 +20,6 @@ class CinemaMainApp:
         self.root.geometry("1280x800")
         self.center_window(1280, 800)
 
-        # HATA GİDERME İÇİN KRİTİK: Tüm ana Treeview objelerini başlat
         self.tree = None
         self.tree_tickets = None
         self.tree_movies = None
@@ -31,7 +30,6 @@ class CinemaMainApp:
         self.notebook = ttk.Notebook(root, bootstyle="primary")
         self.notebook.pack(fill=BOTH, expand=True, padx=10, pady=10)
 
-        # Sekmeleri Oluştur
         self.tab_search = ttk.Frame(self.notebook, padding=10)
         self.notebook.add(self.tab_search, text="🎬 Gişe & Bilet")
         self.setup_search_tab()
@@ -48,6 +46,7 @@ class CinemaMainApp:
             self.tab_reports = ttk.Frame(self.notebook, padding=10)
             self.notebook.add(self.tab_reports, text="📊 Hasılat Raporları")
             self.setup_reports_tab()
+            self.run_auto_cleanup()
         
         self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_change)
 
@@ -58,7 +57,6 @@ class CinemaMainApp:
         y = (screen_height/2) - (height/2)
         self.root.geometry('%dx%d+%d+%d' % (width, height, x, y))
 
-    # --- SEKME 1: GİŞE ---
     def setup_search_tab(self):
         left_panel = ttk.Frame(self.tab_search)
         left_panel.pack(side=LEFT, fill=BOTH, expand=True)
@@ -93,9 +91,8 @@ class CinemaMainApp:
         self.tree.column("Kapasite", width=80, anchor=CENTER)
         self.tree.pack(fill=BOTH, expand=True)
         self.tree.bind("<<TreeviewSelect>>", self.show_poster_on_select)
-        self.search_sessions() # self.tree tanımlandıktan sonra çağrıldığı için sorun çözülmeli
+        self.search_sessions() 
 
-    # --- SEKME 2: GEÇMİŞ ---
     def setup_tickets_tab(self):
         frame_top = ttk.Frame(self.tab_tickets)
         frame_top.pack(fill=X, pady=10)
@@ -114,13 +111,11 @@ class CinemaMainApp:
         self.tree_tickets.heading("Fiyat", text="Tutar")
         self.tree_tickets.pack(fill=BOTH, expand=True)
 
-    # --- SEKME 3: FİLM & SEANS YÖNETİMİ (GÜNCELLENDİ) ---
     def setup_movies_tab(self):
         frame_left = ttk.Frame(self.tab_movies, padding=10, width=350)
         frame_left.pack(side=LEFT, fill=Y, padx=(0, 10))
         frame_left.pack_propagate(False)
 
-        # 1. Film Ekleme
         frame_add_movie = ttk.Labelframe(frame_left, text=" 1. Yeni Film Ekle ", padding=15, bootstyle="primary")
         frame_add_movie.pack(fill=X, pady=(0, 20))
 
@@ -143,7 +138,6 @@ class CinemaMainApp:
         self.lbl_path.pack()
         ttk.Button(frame_add_movie, text="➕ Filmi Kaydet", command=self.add_movie, bootstyle="success").pack(fill=X, pady=10)
 
-        # 2. Seans Ekleme
         frame_add_session = ttk.Labelframe(frame_left, text=" 2. Filme Seans Ekle ", padding=15, bootstyle="warning")
         frame_add_session.pack(fill=X, pady=(0, 20))
         ttk.Label(frame_add_session, text="Film Seç:").pack(anchor=W)
@@ -162,11 +156,9 @@ class CinemaMainApp:
         self.entry_s_time.insert(0, "20:00:00")
         ttk.Button(frame_add_session, text="📅 Seansı Oluştur", command=self.add_session, bootstyle="warning").pack(fill=X, pady=10)
 
-        # Sağ Panel - Listeler
         frame_right = ttk.Frame(self.tab_movies)
         frame_right.pack(side=RIGHT, fill=BOTH, expand=True)
         
-        # 3a. Film Listesi (Top Right)
         frame_list_movies = ttk.Labelframe(frame_right, text="FİLM ARŞİVİ", padding=10, bootstyle="primary")
         frame_list_movies.pack(fill=X, pady=(0, 10))
         
@@ -180,7 +172,6 @@ class CinemaMainApp:
         self.tree_movies.pack(fill=X, expand=True, ipady=50)
         ttk.Button(frame_list_movies, text="🗑️ SEÇİLİ FİLMİ SİL", command=self.delete_movie, bootstyle="danger").pack(pady=5, anchor=E)
 
-        # 3b. Seans Listesi (Bottom Right - YENİ)
         frame_list_sessions = ttk.Labelframe(frame_right, text="AKTİF SEANSLAR", padding=10, bootstyle="info")
         frame_list_sessions.pack(fill=BOTH, expand=True) 
         
@@ -202,7 +193,6 @@ class CinemaMainApp:
         self.load_combobox_data()
         self.load_all_sessions()
 
-    # --- SEKME 4: RAPORLAR ---
     def setup_reports_tab(self):
         frame_cards = ttk.Frame(self.tab_reports, padding=20)
         frame_cards.pack(fill=X)
@@ -232,7 +222,6 @@ class CinemaMainApp:
         self.tree_reports.pack(fill=BOTH, expand=True)
         self.load_reports()
 
-    # --- YARDIMCI METOTLAR ---
     def on_tab_change(self, event):
         selected_tab = event.widget.select()
         try:
@@ -299,6 +288,9 @@ class CinemaMainApp:
                 h_id = cursor.fetchone()[0]
 
                 new_start = datetime.strptime(f"{s_date} {s_time}", "%Y-%m-%d %H:%M:%S")
+                if new_start < datetime.now():
+                    messagebox.showwarning("Geçersiz Tarih", "Geçmiş zamana seans ekleyemezsiniz!")
+                    return
                 new_end = new_start + timedelta(minutes=duration + 15)
 
                 cursor.execute("""SELECT S.SessionDate, S.SessionTime, M.Duration FROM Sessions S 
@@ -336,7 +328,6 @@ class CinemaMainApp:
 
     def search_sessions(self):
         movie_name = self.entry_search.get()
-        # HATA GİDERME İÇİN KRİTİK: self.tree'nin varlığını kontrol et
         if self.tree is None: return
         
         for row in self.tree.get_children(): self.tree.delete(row)
@@ -425,7 +416,6 @@ class CinemaMainApp:
             if conn:
                 try:
                     c = conn.cursor()
-                    # ON DELETE CASCADE olduğu için, sadece Movies silmek yeterlidir
                     c.execute("DELETE FROM Movies WHERE MovieID=%s", (movie_id,))
                     conn.commit()
                     messagebox.showinfo("Silindi", "Film, seansları ve biletleri silindi.")
@@ -436,10 +426,8 @@ class CinemaMainApp:
                 except Exception as e: messagebox.showerror("Hata", str(e))
                 finally: conn.close()
     
-    # YENİ METOT: TÜM SEANSLARI LİSTELEME
     def load_all_sessions(self):
         """Tüm seansları Film & Seans Yönetimi sekmesindeki tabloya yükler."""
-        # tree_sessions'ın tanımlanıp tanımlanmadığını kontrol et
         if not self.is_admin or self.tree_sessions is None: return
         
         for row in self.tree_sessions.get_children(): self.tree_sessions.delete(row)
@@ -459,7 +447,6 @@ class CinemaMainApp:
                 print(f"Seans yükleme hatası: {e}")
             finally: conn.close()
     
-    # YENİ METOT: SEANS SİLME
     def delete_session(self):
         """Seçili seansı siler ve ilgili biletleri ON DELETE CASCADE sayesinde siler."""
         selected = self.tree_sessions.selection()
@@ -475,14 +462,12 @@ class CinemaMainApp:
             if conn:
                 try:
                     c = conn.cursor()
-                    # Tickets tablosunda ON DELETE CASCADE olduğu için, 
-                    # sadece Sessions tablosundan silmek yeterlidir.
                     c.execute("DELETE FROM Sessions WHERE SessionID=%s", (session_id,))
                     conn.commit()
                     messagebox.showinfo("Silindi", "Seans ve ilgili biletler başarıyla silindi.")
                     
-                    self.load_all_sessions() # Listeyi yenile
-                    self.search_sessions() # Gişe listesini yenile
+                    self.load_all_sessions()
+                    self.search_sessions()
                 except Exception as e:
                     messagebox.showerror("Hata", str(e))
                 finally: conn.close()
@@ -558,25 +543,18 @@ class CinemaMainApp:
         if conn:
             try:
                 c = conn.cursor()
-                
-                # --- 1. TOPLAM HASILAT HESAPLAMA ---
-                
+
                 c.execute("SELECT SUM(Price) FROM Tickets")
-                # Hata Düzeltme: Sonucu al, None ise 0.0 yap, ve float'a çevir.
                 active_rev_result = c.fetchone()[0]
                 total_active_rev = float(active_rev_result) if active_rev_result is not None else 0.0
                 
                 c.execute("SELECT SUM(Price) FROM RevenueArchive")
-                # Hata Düzeltme: Aynı şekilde arşivden gelen veriyi de float'a çevir.
                 archived_rev_result = c.fetchone()[0]
                 total_archived_rev = float(archived_rev_result) if archived_rev_result is not None else 0.0
                 
-                # Artık ikisi de float olduğu için toplama sorunsuz çalışır.
                 total_rev = total_active_rev + total_archived_rev
                 self.lbl_total_revenue.config(text=f"{total_rev:,.2f} TL")
 
-                # Hem aktif biletlerden hem de arşivden toplam bilet sayısını al
-                # COUNT INT döndürdüğü için burada tipler uyumludur.
                 c.execute("SELECT COUNT(*) FROM Tickets")
                 total_active_tix = c.fetchone()[0] or 0
                 
@@ -586,7 +564,6 @@ class CinemaMainApp:
                 total_tix = total_active_tix + total_archived_tix
                 self.lbl_total_tickets.config(text=f"{total_tix} Adet")
 
-                # --- 2. FİLM BAZLI HASILAT HESAPLAMA (Union ile) ---
                 for row in self.tree_reports.get_children(): self.tree_reports.delete(row)
                 
                 final_query = """
@@ -613,7 +590,20 @@ class CinemaMainApp:
                 c.execute(final_query)
                 
                 for r in c.fetchall():
-                    # Döngü içindeki hasılat verisini de float'a çevirerek formatlama hatasını önle
                     rev = float(r[2]) if r[2] else 0
                     self.tree_reports.insert("", "end", values=(r[0], r[1], f"{rev:,.2f} TL"))
             finally: conn.close()
+
+    def run_auto_cleanup(self):
+        """Admin giriş yaptığında eski seansları temizler."""
+        conn = get_db_connection()
+        if conn:
+            try:
+                cursor = conn.cursor()
+                cursor.callproc('sp_CleanupOldSessions')
+                conn.commit()
+                print("Sistem Bakımı: Geçmiş seanslar arşive taşındı ve temizlendi.")
+            except Exception as e:
+                print(f"Otomatik temizlik hatası: {e}")
+            finally:
+                conn.close()
